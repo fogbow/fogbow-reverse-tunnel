@@ -1,0 +1,4 @@
+tunnel_port=2222
+http_port=2223
+external_port_range=40000:50000
+host_key_path=hostkey.ser
