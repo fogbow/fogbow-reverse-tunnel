@@ -1,0 +1,8 @@
+/bin
+/target
+/configuration.properties
+/log4j.properties
+/hostkey.ser
+.project
+.settings/
+.classpath
