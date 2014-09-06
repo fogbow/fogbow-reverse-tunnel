@@ -1,15 +1,23 @@
 package org.fogbowcloud.ssh;
 
 import java.io.IOException;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
+import org.apache.log4j.Logger;
 import org.apache.sshd.SshServer;
 import org.apache.sshd.common.ForwardingFilter;
 import org.apache.sshd.common.NamedFactory;
 import org.apache.sshd.common.Session;
+import org.apache.sshd.common.Session.AttributeKey;
 import org.apache.sshd.common.SshdSocketAddress;
 import org.apache.sshd.common.session.AbstractSession;
 import org.apache.sshd.common.util.Buffer;
@@ -24,8 +32,22 @@ import org.apache.sshd.server.session.ServerSession;
 
 public class TunnelServer {
 
-	private static final org.apache.sshd.common.Session.AttributeKey<String> TOKEN = new org.apache.sshd.common.Session.AttributeKey<String>();
-	private final Map<String, Integer> tokens = new HashMap<String, Integer>();
+	private static final Logger LOGGER = Logger.getLogger(TunnelServer.class);
+	
+	private static final long TOKEN_EXPIRATION_CHECK_INTERVAL = 30L; // 30s in seconds
+	private static final int TOKEN_EXPIRATION_TIMEOUT = 1000 * 60 * 10; // 10min in ms
+	
+	private static final AttributeKey<String> TOKEN = new AttributeKey<String>();
+	private final Map<String, Token> tokens = new ConcurrentHashMap<String, Token>();
+	private ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
+	
+	static class Token {
+		Integer port;
+		Long lastIdleCheck = 0L;
+		public Token(Integer port) {
+			this.port = port;
+		}
+	}
 	
 	private SshServer sshServer;
 	private int sshTunnelPort;
@@ -43,14 +65,18 @@ public class TunnelServer {
 
 	public Integer createPort(String token) {
 		Integer newPort = null;
+		if (tokens.containsKey(token)) {
+			return tokens.get(token).port;
+		}
 		for (int port = lowerPort; port <= higherPort; port++) {
-			if (isActiveSession(port) || isTaken(port)) {
+			if (isTaken(port)) {
 				continue;
 			}
 			newPort = port;
 			break;
 		}
-		tokens.put(token, newPort);
+		LOGGER.debug("Token [" + token + "] got port [" + newPort + "].");
+		tokens.put(token, new Token(newPort));
 		return newPort;
 	}
 	
@@ -58,23 +84,25 @@ public class TunnelServer {
 		return tokens.values().contains(port);
 	}
 
-	private boolean isActiveSession(int port) {
+	private ReverseTunnelForwarder getActiveSession(int port) {
 		List<AbstractSession> activeSessions = sshServer.getActiveSessions();
 		for (AbstractSession session : activeSessions) {
 			ServerConnectionService service = session.getService(ServerConnectionService.class);
 			ReverseTunnelForwarder f = (ReverseTunnelForwarder) service.getTcpipForwarder();
 			for (SshdSocketAddress address : f.getLocalForwards()) {
 				if (address.getPort() == port) {
-					return true;
+					return f;
 				}
 			}
 		}
-		return false;
+		return null;
 	}
 
 	public void start() throws IOException {
 		this.sshServer = SshServer.setUpDefaultServer();
-		sshServer.setKeyPairProvider(new SimpleGeneratorHostKeyProvider(hostKeyPath));
+		SimpleGeneratorHostKeyProvider keyPairProvider = new SimpleGeneratorHostKeyProvider(hostKeyPath);
+		keyPairProvider.loadKeys();
+		sshServer.setKeyPairProvider(keyPairProvider);
 		sshServer.setCommandFactory(createUnknownCommandFactory());
 		LinkedList<NamedFactory<UserAuth>> userAuthenticators = new LinkedList<NamedFactory<UserAuth>>();
 		
@@ -85,8 +113,7 @@ public class TunnelServer {
 					@Override
 					public Boolean auth(ServerSession session, String username,
 							String service, Buffer buffer) throws Exception {
-						Integer expectedPort = tokens.get(username);
-						if (expectedPort == null) {
+						if (!tokens.containsKey(username)) {
 							session.close(true);
 							return false;
 						}
@@ -102,9 +129,33 @@ public class TunnelServer {
 			}});
 		
 		sshServer.setTcpipForwardingFilter(createAcceptAllFilter());
-		sshServer.setTcpipForwarderFactory(new ReverseTunnelForwarderFactory(tokens));
+		sshServer.setTcpipForwarderFactory(new ReverseTunnelForwarderFactory());
 		sshServer.setUserAuthFactories(userAuthenticators);
 		sshServer.setPort(sshTunnelPort);
+		executor.scheduleWithFixedDelay(new Runnable() {
+			@Override
+			public void run() {
+				Set<String> tokensToExpire = new HashSet<String>();
+				for (Entry<String, Token> tokenEntry : tokens.entrySet()) {
+					Token token = tokenEntry.getValue();
+					if (getActiveSession(token.port) == null) {
+						long now = System.currentTimeMillis();
+						if (token.lastIdleCheck == 0) {
+							token.lastIdleCheck = now;
+						}
+						if (now - token.lastIdleCheck > TOKEN_EXPIRATION_TIMEOUT) {
+							tokensToExpire.add(tokenEntry.getKey());
+						}
+					} else {
+						token.lastIdleCheck = 0L;
+					}
+				}
+				for (String token : tokensToExpire) {
+					LOGGER.debug("Expiring token [" + token + "].");
+					tokens.remove(token);
+				}
+			}
+		}, 0L, TOKEN_EXPIRATION_CHECK_INTERVAL, TimeUnit.SECONDS);
 		sshServer.start();
 	}
 
@@ -126,10 +177,14 @@ public class TunnelServer {
 					session.close(true);
 					return false;
 				}
-				Integer expectedPort = tokens.get(username);
-				if (expectedPort == null || !expectedPort.equals(address.getPort())) {
+				Token token = tokens.get(username);
+				if (token == null || !token.port.equals(address.getPort())) {
 					session.close(true);
 					return false;
+				}
+				ReverseTunnelForwarder existingSession = getActiveSession(token.port);
+				if (existingSession != null) {
+					existingSession.close(true);
 				}
 				return true;
 			}
@@ -152,7 +207,11 @@ public class TunnelServer {
 	}
 
 	public Integer getPort(String tokenId) {
-		return tokens.get(tokenId);
+		Token token = tokens.get(tokenId);
+		if (token == null) {
+			return null;
+		}
+		return token.port;
 	}
 	
 }
