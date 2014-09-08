@@ -130,6 +130,7 @@ public class TunnelServer {
 		
 		sshServer.setTcpipForwardingFilter(createAcceptAllFilter());
 		sshServer.setTcpipForwarderFactory(new ReverseTunnelForwarderFactory());
+		sshServer.setSessionFactory(new ReverseTunnelSessionFactory());
 		sshServer.setUserAuthFactories(userAuthenticators);
 		sshServer.setPort(sshTunnelPort);
 		executor.scheduleWithFixedDelay(new Runnable() {
