@@ -6,7 +6,6 @@ import java.net.SocketAddress;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 
 import org.apache.sshd.ClientChannel;
@@ -34,10 +33,8 @@ public class ReverseTunnelForwarder extends CloseableUtils.AbstractInnerCloseabl
     private final Set<SshdSocketAddress> localForwards = new HashSet<SshdSocketAddress>();
     private final Map<InetSocketAddress, SshdSocketAddress> sessionToLocalForwards = new HashMap<InetSocketAddress, SshdSocketAddress>();
     protected IoAcceptor acceptor;
-	private Map<String, Integer> tokens;
 
-    public ReverseTunnelForwarder(Map<String, Integer> tokens, ConnectionService service) {
-        this.tokens = tokens;
+    public ReverseTunnelForwarder(ConnectionService service) {
 		this.service = service;
         this.session = service.getSession();
     }
@@ -99,16 +96,6 @@ public class ReverseTunnelForwarder extends CloseableUtils.AbstractInnerCloseabl
         }
         if (local == null) {
         	return;
-        }
-        String tokenToRemove = null;
-        for (Entry<String, Integer> tokenEntry : tokens.entrySet()) {
-			if (tokenEntry.getValue().equals(local.getPort())) {
-				tokenToRemove = tokenEntry.getKey();
-				break;
-			}
-		}
-        if (tokenToRemove != null) {
-        	tokens.remove(tokenToRemove);
         }
     }
 

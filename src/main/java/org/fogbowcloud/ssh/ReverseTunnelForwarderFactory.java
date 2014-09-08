@@ -18,8 +18,6 @@
  */
 package org.fogbowcloud.ssh;
 
-import java.util.Map;
-
 import org.apache.sshd.common.TcpipForwarder;
 import org.apache.sshd.common.TcpipForwarderFactory;
 import org.apache.sshd.common.forward.DefaultTcpipForwarder;
@@ -32,13 +30,8 @@ import org.apache.sshd.common.session.ConnectionService;
  * @author <a href="mailto:dev@mina.apache.org">Apache MINA SSHD Project</a>
  */
 public class ReverseTunnelForwarderFactory implements TcpipForwarderFactory {
-	private Map<String, Integer> tokens;
-
-	public ReverseTunnelForwarderFactory(Map<String, Integer> tokens) {
-		this.tokens = tokens;
-	}
 
 	public TcpipForwarder create(ConnectionService service) {
-		return new ReverseTunnelForwarder(tokens, service);
+		return new ReverseTunnelForwarder(service);
 	}
 }
