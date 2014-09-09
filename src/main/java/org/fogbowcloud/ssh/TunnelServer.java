@@ -63,7 +63,7 @@ public class TunnelServer {
 		this.hostKeyPath = hostKeyPath;
 	}
 
-	public Integer createPort(String token) {
+	public synchronized Integer createPort(String token) {
 		Integer newPort = null;
 		if (tokens.containsKey(token)) {
 			return tokens.get(token).port;
@@ -81,7 +81,12 @@ public class TunnelServer {
 	}
 	
 	private boolean isTaken(int port) {
-		return tokens.values().contains(port);
+		for (Token token : tokens.values()) {
+			if (token.port.equals(port)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private ReverseTunnelForwarder getActiveSession(int port) {
