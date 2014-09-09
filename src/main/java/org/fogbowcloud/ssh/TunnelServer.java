@@ -50,13 +50,15 @@ public class TunnelServer {
 	}
 	
 	private SshServer sshServer;
+	private String sshTunnelHost;
 	private int sshTunnelPort;
 	private int lowerPort;
 	private int higherPort;
 	private String hostKeyPath;
 	
-	public TunnelServer(int sshTunnelPort, int lowerPort, 
+	public TunnelServer(String sshTunnelHost, int sshTunnelPort, int lowerPort, 
 			int higherPort, String hostKeyPath) {
+		this.sshTunnelHost = sshTunnelHost;
 		this.sshTunnelPort = sshTunnelPort;
 		this.lowerPort = lowerPort;
 		this.higherPort = higherPort;
@@ -137,6 +139,7 @@ public class TunnelServer {
 		sshServer.setTcpipForwarderFactory(new ReverseTunnelForwarderFactory());
 		sshServer.setSessionFactory(new ReverseTunnelSessionFactory());
 		sshServer.setUserAuthFactories(userAuthenticators);
+		sshServer.setHost(sshTunnelHost);
 		sshServer.setPort(sshTunnelPort);
 		executor.scheduleWithFixedDelay(new Runnable() {
 			@Override

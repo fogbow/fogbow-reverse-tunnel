@@ -17,12 +17,12 @@ public class TunnelHttpServer extends NanoHTTPD {
 	private String hostKeyPath;
 	private KeyPair kp;
 
-	public TunnelHttpServer(int httpPort, int sshTunnelPort, 
+	public TunnelHttpServer(int httpPort, String sshTunnelHost, int sshTunnelPort, 
 			int lowerPort, int higherPort, String hostKeyPath) {
 		super(httpPort);
 		this.hostKeyPath = hostKeyPath;
 		try {
-			this.tunneling = new TunnelServer(sshTunnelPort, 
+			this.tunneling = new TunnelServer(sshTunnelHost, sshTunnelPort, 
 					lowerPort, higherPort, hostKeyPath);
 			this.tunneling.start();
 		} catch (IOException e) {

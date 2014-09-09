@@ -12,6 +12,7 @@ public class Main {
 		properties.load(input);
 
 		String tunnelPort = properties.getProperty("tunnel_port");
+		String tunnelHost = properties.getProperty("tunnel_host");
 		String httpPort = properties.getProperty("http_port");
 		String externalPortRange = properties.getProperty("external_port_range");
 		String[] externalRangeSplit = externalPortRange.split(":");
@@ -19,6 +20,7 @@ public class Main {
 		
 		TunnelHttpServer tunnelHttpServer = new TunnelHttpServer(
 				Integer.parseInt(httpPort),
+				tunnelHost,
 				Integer.parseInt(tunnelPort),
 				Integer.parseInt(externalRangeSplit[0]), 
 				Integer.parseInt(externalRangeSplit[1]),
