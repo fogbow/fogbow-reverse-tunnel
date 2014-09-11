@@ -1,6 +1,5 @@
 package org.fogbowcloud.ssh;
 
-import org.apache.sshd.common.SshConstants;
 import org.apache.sshd.common.io.IoSession;
 import org.apache.sshd.common.util.Buffer;
 import org.apache.sshd.server.ServerFactoryManager;
@@ -15,11 +14,8 @@ public class ReverseTunnelSession extends ServerSession {
 	
 	@Override
 	protected void doHandleMessage(Buffer buffer) throws Exception {
-		byte cmd = buffer.getByte();
-		if (cmd == SshConstants.SSH_MSG_IGNORE) {
-			resetIdleTimeout();
-		}
 		super.doHandleMessage(buffer);
+		resetIdleTimeout();
 	}
 
 }

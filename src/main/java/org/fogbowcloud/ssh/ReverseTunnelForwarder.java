@@ -15,7 +15,6 @@ import org.apache.sshd.common.ForwardingFilter;
 import org.apache.sshd.common.Session;
 import org.apache.sshd.common.SshdSocketAddress;
 import org.apache.sshd.common.TcpipForwarder;
-import org.apache.sshd.common.forward.TcpipClientChannel;
 import org.apache.sshd.common.future.SshFutureListener;
 import org.apache.sshd.common.io.IoAcceptor;
 import org.apache.sshd.common.io.IoHandler;
@@ -125,9 +124,14 @@ public class ReverseTunnelForwarder extends CloseableUtils.AbstractInnerCloseabl
     //
 
     public void sessionCreated(final IoSession session) throws Exception {
-        final TcpipClientChannel channel;
-        channel = new TcpipClientChannel(TcpipClientChannel.Type.Forwarded, session, null);
-        session.setAttribute(TcpipClientChannel.class, channel);
+    	SshdSocketAddress remoteAddress = null;
+    	for (SshdSocketAddress localForward : localForwards) {
+			if (localForward.getPort() == ((InetSocketAddress)session.getLocalAddress()).getPort()) {
+				remoteAddress = localForward;
+			}
+		}
+        final ReverseTunnelTcpipChannel channel = new ReverseTunnelTcpipChannel(session, remoteAddress);
+        session.setAttribute(ReverseTunnelTcpipChannel.class, channel);
         this.service.registerChannel(channel);
         channel.open().addListener(new SshFutureListener<OpenFuture>() {
             public void operationComplete(OpenFuture future) {
@@ -141,7 +145,7 @@ public class ReverseTunnelForwarder extends CloseableUtils.AbstractInnerCloseabl
     }
 
     public void sessionClosed(IoSession session) throws Exception {
-        TcpipClientChannel channel = (TcpipClientChannel) session.getAttribute(TcpipClientChannel.class);
+    	ReverseTunnelTcpipChannel channel = (ReverseTunnelTcpipChannel) session.getAttribute(ReverseTunnelTcpipChannel.class);
         if (channel != null) {
             log.debug("IoSession {} closed, will now close the channel", session);
             channel.close(false);
@@ -149,7 +153,7 @@ public class ReverseTunnelForwarder extends CloseableUtils.AbstractInnerCloseabl
     }
 
     public void messageReceived(IoSession session, Readable message) throws Exception {
-        TcpipClientChannel channel = (TcpipClientChannel) session.getAttribute(TcpipClientChannel.class);
+    	ReverseTunnelTcpipChannel channel = (ReverseTunnelTcpipChannel) session.getAttribute(ReverseTunnelTcpipChannel.class);
         Buffer buffer = new Buffer();
         buffer.putBuffer(message);
         channel.waitFor(ClientChannel.OPENED | ClientChannel.CLOSED, Long.MAX_VALUE);

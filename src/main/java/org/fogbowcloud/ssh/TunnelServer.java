@@ -50,20 +50,22 @@ public class TunnelServer {
 	}
 	
 	private SshServer sshServer;
+	private String sshTunnelHost;
 	private int sshTunnelPort;
 	private int lowerPort;
 	private int higherPort;
 	private String hostKeyPath;
 	
-	public TunnelServer(int sshTunnelPort, int lowerPort, 
+	public TunnelServer(String sshTunnelHost, int sshTunnelPort, int lowerPort, 
 			int higherPort, String hostKeyPath) {
+		this.sshTunnelHost = sshTunnelHost;
 		this.sshTunnelPort = sshTunnelPort;
 		this.lowerPort = lowerPort;
 		this.higherPort = higherPort;
 		this.hostKeyPath = hostKeyPath;
 	}
 
-	public Integer createPort(String token) {
+	public synchronized Integer createPort(String token) {
 		Integer newPort = null;
 		if (tokens.containsKey(token)) {
 			return tokens.get(token).port;
@@ -81,7 +83,12 @@ public class TunnelServer {
 	}
 	
 	private boolean isTaken(int port) {
-		return tokens.values().contains(port);
+		for (Token token : tokens.values()) {
+			if (token.port.equals(port)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private ReverseTunnelForwarder getActiveSession(int port) {
@@ -132,6 +139,7 @@ public class TunnelServer {
 		sshServer.setTcpipForwarderFactory(new ReverseTunnelForwarderFactory());
 		sshServer.setSessionFactory(new ReverseTunnelSessionFactory());
 		sshServer.setUserAuthFactories(userAuthenticators);
+		sshServer.setHost(sshTunnelHost == null ? "0.0.0.0" : sshTunnelHost);
 		sshServer.setPort(sshTunnelPort);
 		executor.scheduleWithFixedDelay(new Runnable() {
 			@Override
