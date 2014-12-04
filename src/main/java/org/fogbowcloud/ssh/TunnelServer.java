@@ -16,6 +16,7 @@ import org.apache.log4j.Logger;
 import org.apache.sshd.SshServer;
 import org.apache.sshd.common.ForwardingFilter;
 import org.apache.sshd.common.NamedFactory;
+import org.apache.sshd.common.Service;
 import org.apache.sshd.common.Session;
 import org.apache.sshd.common.Session.AttributeKey;
 import org.apache.sshd.common.SshdSocketAddress;
@@ -94,7 +95,14 @@ public class TunnelServer {
 	private ReverseTunnelForwarder getActiveSession(int port) {
 		List<AbstractSession> activeSessions = sshServer.getActiveSessions();
 		for (AbstractSession session : activeSessions) {
-			ServerConnectionService service = session.getService(ServerConnectionService.class);
+			Service rawService = ((ReverseTunnelSession)session).getService();
+			if (rawService == null) {
+				continue;
+			}
+			if (!(rawService instanceof ServerConnectionService)) {
+				continue;
+			}
+			ServerConnectionService service = (ServerConnectionService) rawService;
 			ReverseTunnelForwarder f = (ReverseTunnelForwarder) service.getTcpipForwarder();
 			for (SshdSocketAddress address : f.getLocalForwards()) {
 				if (address.getPort() == port) {

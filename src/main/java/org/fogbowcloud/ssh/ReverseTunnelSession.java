@@ -1,5 +1,6 @@
 package org.fogbowcloud.ssh;
 
+import org.apache.sshd.common.Service;
 import org.apache.sshd.common.io.IoSession;
 import org.apache.sshd.common.util.Buffer;
 import org.apache.sshd.server.ServerFactoryManager;
@@ -16,6 +17,10 @@ public class ReverseTunnelSession extends ServerSession {
 	protected void doHandleMessage(Buffer buffer) throws Exception {
 		super.doHandleMessage(buffer);
 		resetIdleTimeout();
+	}
+	
+	public Service getService() {
+		return currentService;
 	}
 
 }
