@@ -82,6 +82,11 @@ public class TunnelServer {
 			newPort = port;
 			break;
 		}
+		if (newPort == null) {
+			LOGGER.debug("Token [" + token + "] didn't get any port. All ports are busy.");
+			return null;
+		}
+		
 		LOGGER.debug("Token [" + token + "] got port [" + newPort + "].");
 		tokens.put(token, new Token(newPort));
 		return newPort;
@@ -233,6 +238,16 @@ public class TunnelServer {
 			return null;
 		}
 		return token.port;
+	}
+	
+	public Map<String, Integer> getAllPorts() {
+		Map<String, Integer> portsByPrefix = new HashMap<String, Integer>();
+		for (Entry<String, Token> tokenEntry : tokens.entrySet()) {
+			portsByPrefix.put(
+					tokenEntry.getKey(), 
+					tokenEntry.getValue().port);
+		}
+		return portsByPrefix;
 	}
 	
 	public Map<String, Integer> getPortByPrefix(String tokenId) {
