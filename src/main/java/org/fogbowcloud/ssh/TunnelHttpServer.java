@@ -65,8 +65,7 @@ public class TunnelHttpServer extends NanoHTTPD {
 			if (method.equals(Method.POST)) {
 				Integer port = this.tunneling.createPort(tokenId);
 				if (port == null) {
-					return new NanoHTTPD.Response(Status.INTERNAL_ERROR, 
-							MIME_PLAINTEXT, "Internal error");
+					return new NanoHTTPD.Response(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "");
 				}
 				return new NanoHTTPD.Response(port.toString());
 			}
