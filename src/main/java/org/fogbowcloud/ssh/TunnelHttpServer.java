@@ -7,7 +7,7 @@ import java.io.UnsupportedEncodingException;
 import java.security.KeyPair;
 import java.util.Map;
 
-import org.apache.mina.util.Base64;
+import org.apache.sshd.common.util.Base64;
 import org.json.JSONObject;
 
 import fi.iki.elonen.NanoHTTPD;

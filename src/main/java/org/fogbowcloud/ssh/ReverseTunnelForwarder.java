@@ -197,4 +197,16 @@ public class ReverseTunnelForwarder extends CloseableUtils.AbstractInnerCloseabl
         }
     }
 
+	@Override
+	public SshdSocketAddress startDynamicPortForwarding(SshdSocketAddress arg0)
+			throws IOException {
+		return arg0;
+	}
+
+	@Override
+	public void stopDynamicPortForwarding(SshdSocketAddress arg0)
+			throws IOException {
+		
+	}
+
 }
