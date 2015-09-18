@@ -1,6 +1,7 @@
 package org.fogbowcloud.ssh;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -16,6 +17,7 @@ import org.apache.log4j.Logger;
 import org.apache.sshd.SshServer;
 import org.apache.sshd.common.ForwardingFilter;
 import org.apache.sshd.common.NamedFactory;
+import org.apache.sshd.common.Service;
 import org.apache.sshd.common.Session;
 import org.apache.sshd.common.Session.AttributeKey;
 import org.apache.sshd.common.SshdSocketAddress;
@@ -55,13 +57,16 @@ public class TunnelServer {
 	private int lowerPort;
 	private int higherPort;
 	private String hostKeyPath;
+	private Long idleTokenTimeout;
 	
 	public TunnelServer(String sshTunnelHost, int sshTunnelPort, int lowerPort, 
-			int higherPort, String hostKeyPath) {
+			int higherPort, Long idleTokenTimeout, String hostKeyPath) {
 		this.sshTunnelHost = sshTunnelHost;
 		this.sshTunnelPort = sshTunnelPort;
 		this.lowerPort = lowerPort;
 		this.higherPort = higherPort;
+		this.idleTokenTimeout = idleTokenTimeout == null ? TOKEN_EXPIRATION_TIMEOUT
+				: idleTokenTimeout;
 		this.hostKeyPath = hostKeyPath;
 	}
 
@@ -77,6 +82,11 @@ public class TunnelServer {
 			newPort = port;
 			break;
 		}
+		if (newPort == null) {
+			LOGGER.debug("Token [" + token + "] didn't get any port. All ports are busy.");
+			return null;
+		}
+		
 		LOGGER.debug("Token [" + token + "] got port [" + newPort + "].");
 		tokens.put(token, new Token(newPort));
 		return newPort;
@@ -94,7 +104,14 @@ public class TunnelServer {
 	private ReverseTunnelForwarder getActiveSession(int port) {
 		List<AbstractSession> activeSessions = sshServer.getActiveSessions();
 		for (AbstractSession session : activeSessions) {
-			ServerConnectionService service = session.getService(ServerConnectionService.class);
+			Service rawService = ((ReverseTunnelSession)session).getService();
+			if (rawService == null) {
+				continue;
+			}
+			if (!(rawService instanceof ServerConnectionService)) {
+				continue;
+			}
+			ServerConnectionService service = (ServerConnectionService) rawService;
 			ReverseTunnelForwarder f = (ReverseTunnelForwarder) service.getTcpipForwarder();
 			for (SshdSocketAddress address : f.getLocalForwards()) {
 				if (address.getPort() == port) {
@@ -152,7 +169,7 @@ public class TunnelServer {
 						if (token.lastIdleCheck == 0) {
 							token.lastIdleCheck = now;
 						}
-						if (now - token.lastIdleCheck > TOKEN_EXPIRATION_TIMEOUT) {
+						if (now - token.lastIdleCheck > idleTokenTimeout) {
 							tokensToExpire.add(tokenEntry.getKey());
 						}
 					} else {
@@ -221,6 +238,33 @@ public class TunnelServer {
 			return null;
 		}
 		return token.port;
+	}
+	
+	public Map<String, Integer> getAllPorts() {
+		Map<String, Integer> portsByPrefix = new HashMap<String, Integer>();
+		for (Entry<String, Token> tokenEntry : tokens.entrySet()) {
+			portsByPrefix.put(
+					tokenEntry.getKey(), 
+					tokenEntry.getValue().port);
+		}
+		return portsByPrefix;
+	}
+	
+	public Map<String, Integer> getPortByPrefix(String tokenId) {
+		Map<String, Integer> portsByPrefix = new HashMap<String, Integer>();
+		Integer sshPort = getPort(tokenId);
+		if (sshPort != null) {
+			portsByPrefix.put("ssh", sshPort);
+		}
+		for (Entry<String, Token> tokenEntry : tokens.entrySet()) {
+			String tokenPrefix = tokenId + "-";
+			if (tokenEntry.getKey().startsWith(tokenPrefix)) {
+				portsByPrefix.put(
+						tokenEntry.getKey().substring(tokenPrefix.length()), 
+						tokenEntry.getValue().port);
+			}
+		}
+		return portsByPrefix;
 	}
 	
 }

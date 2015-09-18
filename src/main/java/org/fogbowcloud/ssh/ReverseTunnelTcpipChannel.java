@@ -13,7 +13,6 @@ import org.apache.sshd.common.SshdSocketAddress;
 import org.apache.sshd.common.channel.ChannelOutputStream;
 import org.apache.sshd.common.io.IoSession;
 import org.apache.sshd.common.util.Buffer;
-import org.apache.sshd.common.util.CloseableUtils;
 
 public class ReverseTunnelTcpipChannel extends AbstractClientChannel {
 
@@ -67,7 +66,7 @@ public class ReverseTunnelTcpipChannel extends AbstractClientChannel {
 
     @Override
     protected Closeable getInnerCloseable() {
-        return CloseableUtils.sequential(serverSession, super.getInnerCloseable());
+        return builder().sequential(serverSession, super.getInnerCloseable()).build();
     }
 
     protected synchronized void doWriteData(byte[] data, int off, int len) throws IOException {

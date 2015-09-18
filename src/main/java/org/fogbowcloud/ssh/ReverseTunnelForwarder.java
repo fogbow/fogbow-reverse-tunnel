@@ -85,8 +85,10 @@ public class ReverseTunnelForwarder extends CloseableUtils.AbstractInnerCloseabl
 
     public synchronized void localPortForwardingCancelled(SshdSocketAddress local) throws IOException {
         if (localForwards.remove(local) && acceptor != null) {
-        	Nio2Acceptor a = (Nio2Acceptor) acceptor;
-        	a.doCloseImmediately();
+        	if (acceptor instanceof Nio2Acceptor) {
+        		Nio2Acceptor a = (Nio2Acceptor) acceptor;
+        		a.doCloseImmediately();
+        	}
             acceptor.unbind(local.toInetSocketAddress());
             if (acceptor.getBoundAddresses().isEmpty()) {
                 acceptor.close(true);
@@ -194,5 +196,17 @@ public class ReverseTunnelForwarder extends CloseableUtils.AbstractInnerCloseabl
             throw bindErr;
         }
     }
+
+	@Override
+	public SshdSocketAddress startDynamicPortForwarding(SshdSocketAddress arg0)
+			throws IOException {
+		return arg0;
+	}
+
+	@Override
+	public void stopDynamicPortForwarding(SshdSocketAddress arg0)
+			throws IOException {
+		
+	}
 
 }

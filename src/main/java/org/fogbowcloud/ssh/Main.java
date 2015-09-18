@@ -17,6 +17,11 @@ public class Main {
 		String externalPortRange = properties.getProperty("external_port_range");
 		String[] externalRangeSplit = externalPortRange.split(":");
 		String externalHostKeyPath = properties.getProperty("host_key_path");
+		String idleTokenTimeoutStr = properties.getProperty("idle_token_timeout");
+		Long idleTokenTimeout = null;
+		if (idleTokenTimeoutStr != null) {
+			idleTokenTimeout = Long.parseLong(idleTokenTimeoutStr) * 1000;
+		}
 		
 		TunnelHttpServer tunnelHttpServer = new TunnelHttpServer(
 				Integer.parseInt(httpPort),
@@ -24,6 +29,7 @@ public class Main {
 				Integer.parseInt(tunnelPort),
 				Integer.parseInt(externalRangeSplit[0]), 
 				Integer.parseInt(externalRangeSplit[1]),
+				idleTokenTimeout,
 				externalHostKeyPath);
 		tunnelHttpServer.start();
 	}
