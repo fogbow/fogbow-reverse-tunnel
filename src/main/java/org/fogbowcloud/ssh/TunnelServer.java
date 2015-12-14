@@ -158,6 +158,7 @@ public class TunnelServer {
 		sshServer.setUserAuthFactories(userAuthenticators);
 		sshServer.setHost(sshTunnelHost == null ? "0.0.0.0" : sshTunnelHost);
 		sshServer.setPort(sshTunnelPort);
+		sshServer.setNioWorkers(7);
 		executor.scheduleWithFixedDelay(new Runnable() {
 			@Override
 			public void run() {
