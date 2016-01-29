@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.sshd.common.util.Base64;
 import org.json.JSONObject;
@@ -20,7 +21,7 @@ public class TunnelHttpServer extends NanoHTTPD {
 	
 	//private TunnelServer tunneling;
 	
-	private Map<Integer, TunnelServer> tunnelServers = new HashMap<Integer, TunnelServer>();
+	private Map<Integer, TunnelServer> tunnelServers = new ConcurrentHashMap<Integer, TunnelServer>();
 	
 	private String hostKeyPath;
 	private KeyPair kp;
