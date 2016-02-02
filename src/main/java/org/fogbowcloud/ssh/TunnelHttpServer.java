@@ -5,12 +5,19 @@ import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.UnsupportedEncodingException;
 import java.security.KeyPair;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
+import org.apache.log4j.Logger;
 import org.apache.sshd.common.util.Base64;
 import org.json.JSONObject;
 
@@ -20,6 +27,8 @@ import fi.iki.elonen.NanoHTTPD.Response.Status;
 public class TunnelHttpServer extends NanoHTTPD {
 	
 	//private TunnelServer tunneling;
+	private static final int SSH_SERVER_VERIFICATION_TIME = 60000;
+	private static final Logger LOGGER = Logger.getLogger(TunnelHttpServer.class);
 	
 	private Map<Integer, TunnelServer> tunnelServers = new ConcurrentHashMap<Integer, TunnelServer>();
 	
@@ -34,6 +43,8 @@ public class TunnelHttpServer extends NanoHTTPD {
 	private Long idleTokenTimeout;
 	
 	private int portsPerShhServer;
+	
+	private ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
 
 	public TunnelHttpServer(int httpPort, String sshTunnelHost, int lowerSshTunnelPort, int higherSshTunnelPort, 
 			int lowerPort, int higherPort, Long idleTokenTimeout, String hostKeyPath, int portsPerShhServer) {
@@ -49,7 +60,32 @@ public class TunnelHttpServer extends NanoHTTPD {
 		this.portsPerShhServer = portsPerShhServer;
 		
 		try {
+			
 			this.createNewTunnelServer();
+			
+			executor.scheduleWithFixedDelay(new Runnable() {
+				@Override
+				public void run() {
+					
+					List<TunnelServer> tunnelsToRemove = new ArrayList<TunnelServer>();
+					
+					for(Entry<Integer, TunnelServer> entry : tunnelServers.entrySet()){
+						if(entry.getValue().getTotalUsedPorts() <= 0){
+							tunnelsToRemove.add(entry.getValue());
+						}
+					}
+					
+					for(TunnelServer tunneling : tunnelsToRemove){
+						try {
+							removeTunnelServer(tunneling);
+						} catch (InterruptedException e) {
+							e.printStackTrace();
+						}
+					}
+					
+				}
+			}, SSH_SERVER_VERIFICATION_TIME, SSH_SERVER_VERIFICATION_TIME, TimeUnit.MILLISECONDS);
+			
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -254,6 +290,7 @@ public class TunnelHttpServer extends NanoHTTPD {
 	private void removeTunnelServer(TunnelServer tunneling) throws InterruptedException{
 		if(tunneling != null){
 			tunneling.stop();
+			LOGGER.warn("Removing ssh server with port: "+tunneling.getSshTunnelPort());
 			tunnelServers.remove(tunneling.getSshTunnelPort());
 		}
 	}
