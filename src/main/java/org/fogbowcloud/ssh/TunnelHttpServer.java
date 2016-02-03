@@ -27,7 +27,7 @@ import fi.iki.elonen.NanoHTTPD.Response.Status;
 public class TunnelHttpServer extends NanoHTTPD {
 	
 	//private TunnelServer tunneling;
-	private static final int SSH_SERVER_VERIFICATION_TIME = 60000;
+	private static final int SSH_SERVER_VERIFICATION_TIME = 300;
 	private static final Logger LOGGER = Logger.getLogger(TunnelHttpServer.class);
 	
 	private Map<Integer, TunnelServer> tunnelServers = new ConcurrentHashMap<Integer, TunnelServer>();
@@ -41,13 +41,14 @@ public class TunnelHttpServer extends NanoHTTPD {
 	private int lowerSshTunnelPort;
 	private int higherSshTunnelPort;
 	private Long idleTokenTimeout;
+	private int checkSSHServersInterval;
 	
 	private int portsPerShhServer;
 	
 	private ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
 
 	public TunnelHttpServer(int httpPort, String sshTunnelHost, int lowerSshTunnelPort, int higherSshTunnelPort, 
-			int lowerPort, int higherPort, Long idleTokenTimeout, String hostKeyPath, int portsPerShhServer) {
+			int lowerPort, int higherPort, Long idleTokenTimeout, String hostKeyPath, int portsPerShhServer, int checkSSHServersInterval) {
 		super(httpPort);
 		this.hostKeyPath = hostKeyPath;
 		
@@ -58,6 +59,7 @@ public class TunnelHttpServer extends NanoHTTPD {
 		this.higherSshTunnelPort = higherSshTunnelPort;
 		this.idleTokenTimeout = idleTokenTimeout;
 		this.portsPerShhServer = portsPerShhServer;
+		this.checkSSHServersInterval = checkSSHServersInterval == 0 ? SSH_SERVER_VERIFICATION_TIME : checkSSHServersInterval;
 		
 		try {
 			
@@ -70,7 +72,7 @@ public class TunnelHttpServer extends NanoHTTPD {
 					List<TunnelServer> tunnelsToRemove = new ArrayList<TunnelServer>();
 					
 					for(Entry<Integer, TunnelServer> entry : tunnelServers.entrySet()){
-						if(entry.getValue().getTotalUsedPorts() <= 0){
+						if(entry.getValue().getActiveTokensNumber() <= 0){
 							tunnelsToRemove.add(entry.getValue());
 						}
 					}
@@ -79,15 +81,15 @@ public class TunnelHttpServer extends NanoHTTPD {
 						try {
 							removeTunnelServer(tunneling);
 						} catch (InterruptedException e) {
-							e.printStackTrace();
+							LOGGER.error(e.getMessage(), e);
 						}
 					}
 					
 				}
-			}, SSH_SERVER_VERIFICATION_TIME, SSH_SERVER_VERIFICATION_TIME, TimeUnit.MILLISECONDS);
+			}, this.checkSSHServersInterval, this.checkSSHServersInterval, TimeUnit.SECONDS);
 			
 		} catch (IOException e) {
-			e.printStackTrace();
+			LOGGER.error(e.getMessage(), e);
 		}
 	}
 
@@ -147,12 +149,12 @@ public class TunnelHttpServer extends NanoHTTPD {
 							sshServerPort = tunneling.getSshTunnelPort();
 						}
 					} catch (IOException e) {
-						return new NanoHTTPD.Response(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "");
+						return new NanoHTTPD.Response(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error while creating shh server to handle new port.");
 					}
 				}
 				
 				if (instancePort == null) {
-					return new NanoHTTPD.Response(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "");
+					return new NanoHTTPD.Response(Status.FORBIDDEN, MIME_PLAINTEXT, "Token [" + tokenId + "] didn't get any port. All ssh servers are busy.");
 				}
 				//Return format: instancePort:sshTunnelServerPort (int:int) 
 				return new NanoHTTPD.Response(instancePort.toString()+":"+sshServerPort.toString());
@@ -207,7 +209,6 @@ public class TunnelHttpServer extends NanoHTTPD {
 		return new NanoHTTPD.Response(Status.METHOD_NOT_ALLOWED, MIME_PLAINTEXT, "");
 	}
 	
-	//TODO: Create new method to create a new TunnelServer.
 	private TunnelServer createNewTunnelServer() throws IOException{
 			
 			//Setting available ports to this tunnel server 
@@ -267,6 +268,9 @@ public class TunnelHttpServer extends NanoHTTPD {
 	}
 	
 	//TODO: Create new method to validate if the requester have available quota to request new port. 
+	
+	
+	
 	private boolean releaseInstancePort(String tokenId, Integer port){
 		for(TunnelServer tunneling : tunnelServers.values()){
 			
@@ -274,7 +278,7 @@ public class TunnelHttpServer extends NanoHTTPD {
 			
 			if( actualPort != null && (actualPort.compareTo(port)== 0) ){
 				tunneling.releasePort(port);
-				if(tunneling.getTotalUsedPorts() == 0){
+				if(tunneling.getActiveTokensNumber() == 0){
 					try {
 						this.removeTunnelServer(tunneling);
 					} catch (InterruptedException e) {

@@ -25,6 +25,9 @@ public class Main {
 			idleTokenTimeout = Long.parseLong(idleTokenTimeoutStr) * 1000;
 		}
 		
+		String checkSSHServersIntervalStr = properties.getProperty("check_ssh_servers_interval");
+		int checkSSHServersInterval = Integer.parseInt(checkSSHServersIntervalStr);
+		
 		TunnelHttpServer tunnelHttpServer = new TunnelHttpServer(
 				Integer.parseInt(httpPort),
 				tunnelHost,
@@ -34,7 +37,7 @@ public class Main {
 				Integer.parseInt(externalRangeSplit[1]),
 				idleTokenTimeout,
 				externalHostKeyPath,
-				Integer.parseInt(portsPerShhServer));
+				Integer.parseInt(portsPerShhServer), checkSSHServersInterval);
 		tunnelHttpServer.start();
 		
 	}

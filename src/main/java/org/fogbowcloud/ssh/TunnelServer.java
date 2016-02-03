@@ -316,7 +316,7 @@ public class TunnelServer {
 		
 	}
 
-	public int getTotalUsedPorts(){
+	public int getActiveTokensNumber(){
 		return tokens.size();
 	}
 	

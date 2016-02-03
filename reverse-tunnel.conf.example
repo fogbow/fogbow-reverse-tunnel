@@ -1,7 +1,8 @@
-tunnel_port_range=2222:2242
+tunnel_port_range=2224:2242
 tunnel_host=0.0.0.0
 http_port=2223
 external_port_range=20000:30000
 host_key_path=hostkey.ser
 idle_token_timeout=86400
 ports_per_ssh_server=5
+check_ssh_servers_interval=120
