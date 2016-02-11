@@ -26,11 +26,20 @@ import fi.iki.elonen.NanoHTTPD.Response.Status;
 
 public class TunnelHttpServer extends NanoHTTPD {
 	
+	
+	private static final int DEFAULT_TOKEN_PORT_QUOTA = 5;
+	
+	private static final String REMOTE_ADDR = "remote-addr";
+	private static final String HTTP_CLIENT_IP = "http-client-ip";
 	//private TunnelServer tunneling;
 	private static final int SSH_SERVER_VERIFICATION_TIME = 300;
 	private static final Logger LOGGER = Logger.getLogger(TunnelHttpServer.class);
 	
 	private Map<Integer, TunnelServer> tunnelServers = new ConcurrentHashMap<Integer, TunnelServer>();
+	private Map<String, Integer> clientPortQuota = new ConcurrentHashMap<String, Integer>();
+	
+	//Key(Integer): port used by an client. Value (String): Client IP that use this port.
+	private Map<Integer, String> portClientMap = new ConcurrentHashMap<Integer, String>();
 	
 	private String hostKeyPath;
 	private KeyPair kp;
@@ -92,14 +101,36 @@ public class TunnelHttpServer extends NanoHTTPD {
 			LOGGER.error(e.getMessage(), e);
 		}
 	}
+	
+	protected TunnelHttpServer(int httpPort, String sshTunnelHost, int lowerSshTunnelPort, int higherSshTunnelPort, 
+			int lowerPort, int higherPort, Long idleTokenTimeout, String hostKeyPath, int portsPerShhServer) {
+		super(httpPort);
+		
+		this.hostKeyPath = hostKeyPath;
+		this.lowerPort = lowerPort;
+		this.higherPort = higherPort;
+		this.sshTunnelHost = sshTunnelHost;
+		this.lowerSshTunnelPort = lowerSshTunnelPort;
+		this.higherSshTunnelPort = higherSshTunnelPort;
+		this.idleTokenTimeout = idleTokenTimeout;
+		this.portsPerShhServer = portsPerShhServer;
+	}
 
 	@Override
 	public Response serve(IHTTPSession session) {
+		
 		Method method = session.getMethod();
 		String uri = session.getUri();
 		String[] splitUri = uri.split("\\/");
+		
+		String clientIP = session.getHeaders().get(HTTP_CLIENT_IP);
+		
+		if(clientIP == null || clientIP.isEmpty()){
+			clientIP = session.getHeaders().get(REMOTE_ADDR);
+		}
+		
 		if (splitUri.length < 2) {
-			return new NanoHTTPD.Response(Status.METHOD_NOT_ALLOWED, MIME_PLAINTEXT, "");
+			return new NanoHTTPD.Response(Status.BAD_REQUEST, MIME_PLAINTEXT, "Wrong tokenQuota parameter.");
 		}
 		if (splitUri[1].equals("token")) {
 			
@@ -107,7 +138,23 @@ public class TunnelHttpServer extends NanoHTTPD {
 				return new NanoHTTPD.Response(Status.METHOD_NOT_ALLOWED, MIME_PLAINTEXT, "");
 			}
 			
-			String tokenId = splitUri[2];
+			String tokenIdAndQuota = splitUri[2];
+			String[] splitTokenIdAndQuota = tokenIdAndQuota.split(":");
+
+			if(splitTokenIdAndQuota.length < 1){
+				return new NanoHTTPD.Response(Status.METHOD_NOT_ALLOWED, MIME_PLAINTEXT, "");
+			}
+			
+			String tokenId = splitTokenIdAndQuota[0];
+			Integer tokenQuote = new Integer(DEFAULT_TOKEN_PORT_QUOTA);
+			
+			if(splitTokenIdAndQuota.length > 1 && Utils.isNumber(splitTokenIdAndQuota[1])){
+				tokenQuote = Integer.valueOf(splitTokenIdAndQuota[1]);
+			}
+			
+			if(clientPortQuota.get(clientIP) == null){
+				clientPortQuota.put(clientIP, tokenQuote);
+			}
 			
 			if (method.equals(Method.GET)) {
 				if (splitUri.length == 4 && splitUri[3].equals("all")) {
@@ -127,37 +174,45 @@ public class TunnelHttpServer extends NanoHTTPD {
 			}
 			if (method.equals(Method.POST)) {
 				
-				//TODO verify if the request can request new port. (ports quota per instance.)
-				Integer instancePort = null ;
-				Integer sshServerPort = null ;
-				
-				if(tunnelServers.values() != null && !tunnelServers.values().isEmpty()){
-					for(TunnelServer tunneling : tunnelServers.values()){
-						instancePort = tunneling.createPort(tokenId);
-						if(instancePort != null){
-							sshServerPort = tunneling.getSshTunnelPort();
-							break;
-						}
-					}
-				}
-				
-				if (instancePort == null) {
-					try {
-						TunnelServer tunneling = this.createNewTunnelServer();
-						if(tunneling != null){
+				if(this.hasAvailableQuota(clientIP)){
+
+					Integer instancePort = null ;
+					Integer sshServerPort = null ;
+
+					if(tunnelServers.values() != null && !tunnelServers.values().isEmpty()){
+						for(TunnelServer tunneling : tunnelServers.values()){
 							instancePort = tunneling.createPort(tokenId);
-							sshServerPort = tunneling.getSshTunnelPort();
+							if(instancePort != null){
+								sshServerPort = tunneling.getSshTunnelPort();
+								break;
+							}
 						}
-					} catch (IOException e) {
-						return new NanoHTTPD.Response(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error while creating shh server to handle new port.");
 					}
+
+					if (instancePort == null) {
+						try {
+							TunnelServer tunneling = this.createNewTunnelServer();
+							if(tunneling != null){
+								instancePort = tunneling.createPort(tokenId);
+								sshServerPort = tunneling.getSshTunnelPort();
+							}
+						} catch (IOException e) {
+							return new NanoHTTPD.Response(Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error while creating shh server to handle new port.");
+						}
+					}
+
+					if (instancePort == null) {
+						return new NanoHTTPD.Response(Status.FORBIDDEN, MIME_PLAINTEXT, "Token [" + tokenId + "] didn't get any port. All ssh servers are busy.");
+					}
+
+					portClientMap.put(instancePort, clientIP);
+
+					//Return format: instancePort:sshTunnelServerPort (int:int) 
+					return new NanoHTTPD.Response(instancePort.toString()+":"+sshServerPort.toString());
+
+				}else{
+					return new NanoHTTPD.Response(Status.FORBIDDEN, MIME_PLAINTEXT, "Token [" + tokenId + "] didn't get any port. Quota limit has been reached.");
 				}
-				
-				if (instancePort == null) {
-					return new NanoHTTPD.Response(Status.FORBIDDEN, MIME_PLAINTEXT, "Token [" + tokenId + "] didn't get any port. All ssh servers are busy.");
-				}
-				//Return format: instancePort:sshTunnelServerPort (int:int) 
-				return new NanoHTTPD.Response(instancePort.toString()+":"+sshServerPort.toString());
 			}
 			
 			if (method.equals(Method.DELETE)) {
@@ -267,8 +322,37 @@ public class TunnelHttpServer extends NanoHTTPD {
 		return null;
 	}
 	
-	//TODO: Create new method to validate if the requester have available quota to request new port. 
-	
+	private boolean hasAvailableQuota(String clientIp){
+		
+		Integer tokenQuota = clientPortQuota.get(clientIp);
+		
+		List<Integer> allPort = new ArrayList<Integer>();
+		List<Integer> portsToRemove = new ArrayList<Integer>();
+		
+		for(TunnelServer tunneling : tunnelServers.values()){
+			allPort.addAll(tunneling.getAllPorts().values());
+		}
+		
+		int totalUsage = 0;
+		
+		for(Entry<Integer, String> entry : portClientMap.entrySet()){
+			if(allPort.contains(entry.getKey())){
+				if(entry.getValue().equals(clientIp)){
+					totalUsage++;
+				}
+			}else{
+				portsToRemove.add(entry.getKey());
+			}
+		}
+		
+		if(!portsToRemove.isEmpty()){
+			for(Integer port : portsToRemove){
+				portClientMap.remove(port);
+			}
+		}
+		
+		return tokenQuota.compareTo(new Integer(totalUsage)) > 0 ? true : false; 
+	}
 	
 	
 	private boolean releaseInstancePort(String tokenId, Integer port){
@@ -298,4 +382,10 @@ public class TunnelHttpServer extends NanoHTTPD {
 			tunnelServers.remove(tunneling.getSshTunnelPort());
 		}
 	}
+
+	protected void setTunnelServers(Map<Integer, TunnelServer> tunnelServers) {
+		this.tunnelServers = tunnelServers;
+	}
+	
+	
 }
