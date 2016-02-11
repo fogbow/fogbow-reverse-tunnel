@@ -174,6 +174,8 @@ public class TunnelHttpServer extends NanoHTTPD {
 			}
 			if (method.equals(Method.POST)) {
 				
+				LOGGER.debug("Recieving request of port from ["+clientIP+"]");
+				
 				if(this.hasAvailableQuota(clientIP)){
 
 					Integer instancePort = null ;
@@ -211,6 +213,7 @@ public class TunnelHttpServer extends NanoHTTPD {
 					return new NanoHTTPD.Response(instancePort.toString()+":"+sshServerPort.toString());
 
 				}else{
+					LOGGER.debug("Client ["+clientIP+"] has reached port limit");
 					return new NanoHTTPD.Response(Status.FORBIDDEN, MIME_PLAINTEXT, "Token [" + tokenId + "] didn't get any port. Quota limit has been reached.");
 				}
 			}
