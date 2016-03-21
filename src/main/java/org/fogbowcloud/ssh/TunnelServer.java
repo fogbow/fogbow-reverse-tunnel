@@ -53,11 +53,13 @@ public class TunnelServer {
 	
 	private SshServer sshServer;
 	private String sshTunnelHost;
-	private int sshTunnelPort;
-	private int lowerPort;
-	private int higherPort;
+	private final int sshTunnelPort;
+	private final int lowerPort;
+	private final int higherPort;
 	private String hostKeyPath;
 	private Long idleTokenTimeout;
+	
+	private int nioWorkers;
 	
 	public TunnelServer(String sshTunnelHost, int sshTunnelPort, int lowerPort, 
 			int higherPort, Long idleTokenTimeout, String hostKeyPath) {
@@ -68,6 +70,7 @@ public class TunnelServer {
 		this.idleTokenTimeout = idleTokenTimeout == null ? TOKEN_EXPIRATION_TIMEOUT
 				: idleTokenTimeout;
 		this.hostKeyPath = hostKeyPath;
+		this.nioWorkers = (higherPort - lowerPort)+2; //+2 is to have a secure margin of works for ports. If number of ports is 5, workers will be set to 6;
 	}
 
 	public synchronized Integer createPort(String token) {
@@ -158,6 +161,7 @@ public class TunnelServer {
 		sshServer.setUserAuthFactories(userAuthenticators);
 		sshServer.setHost(sshTunnelHost == null ? "0.0.0.0" : sshTunnelHost);
 		sshServer.setPort(sshTunnelPort);
+		sshServer.setNioWorkers(nioWorkers);
 		executor.scheduleWithFixedDelay(new Runnable() {
 			@Override
 			public void run() {
@@ -265,6 +269,67 @@ public class TunnelServer {
 			}
 		}
 		return portsByPrefix;
+	}
+	
+	//TODO: Create a method that return boolean for server busy (reached port limit) or not.
+	public boolean isServerBusy(){
+		for (int port = lowerPort; port <= higherPort; port++) {
+			if (!isTaken(port)) {
+				return false;
+			}
+		}
+		return true;
+	}
+	
+	//TODO: Create a new method to remove a token and release the relative port. 
+	public void removeToken(String tokenId){
+		tokens.remove(tokenId);
+		
+	}
+	
+	public void releasePort(Integer port){
+		if(port != null){
+			String tokenToRemove = null;
+			for(Entry<String, Token> e : tokens.entrySet()){
+				if(port.compareTo(e.getValue().port) == 0){
+					tokenToRemove = e.getKey();
+					break;
+				}
+			}
+			
+			if(this.getActiveSession(port.intValue()) != null){
+				this.getActiveSession(port.intValue()).close(true);
+			}
+			tokens.remove(tokenToRemove);
+		}
+	}
+	
+	public void stop() throws InterruptedException{
+		
+		List<AbstractSession> activeSessions = sshServer.getActiveSessions();
+		if(activeSessions != null && !activeSessions.isEmpty()){
+			for (AbstractSession session : activeSessions) {
+				session.close(true);
+			}
+		}
+		sshServer.stop(true);
+		
+	}
+
+	public int getActiveTokensNumber(){
+		return tokens.size();
+	}
+	
+	public int getLowerPort() {
+		return lowerPort;
+	}
+
+	public int getHigherPort() {
+		return higherPort;
+	}
+
+	public int getSshTunnelPort() {
+		return sshTunnelPort;
 	}
 	
 }
