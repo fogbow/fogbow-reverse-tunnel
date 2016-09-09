@@ -6,4 +6,4 @@ CONF_LOG=-Dlog4j.configuration=file:$LOG4J
 else
 CONF_LOG=
 fi
-java $CONF_LOG -jar target/fogbow-reverse-tunnel-0.0.1-SNAPSHOT-jar-with-dependencies.jar reverse-tunnel.conf > /dev/null &
+java $CONF_LOG -jar target/fogbow-reverse-tunnel-0.0.1-SNAPSHOT-jar-with-dependencies.jar reverse-tunnel.conf $1 > /dev/null &
