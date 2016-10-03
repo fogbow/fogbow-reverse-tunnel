@@ -1,17 +1,13 @@
 package org.fogbowcloud.ssh;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 import org.apache.log4j.Logger;
 import org.apache.sshd.SshServer;
@@ -31,38 +27,29 @@ import org.apache.sshd.server.command.UnknownCommand;
 import org.apache.sshd.server.keyprovider.SimpleGeneratorHostKeyProvider;
 import org.apache.sshd.server.session.ServerConnectionService;
 import org.apache.sshd.server.session.ServerSession;
+import org.fogbowcloud.ssh.model.Token;
 
 public class TunnelServer {
 
 	private static final Logger LOGGER = Logger.getLogger(TunnelServer.class);
 	
-	private static final long TOKEN_EXPIRATION_CHECK_INTERVAL = 30L; // 30s in seconds
 	private static final int TOKEN_EXPIRATION_TIMEOUT = 1000 * 60 * 10; // 10min in ms
 	
 	private static final AttributeKey<String> TOKEN = new AttributeKey<String>();
-	private final Map<String, Token> tokens = new ConcurrentHashMap<String, Token>();
-	private ScheduledExecutorService executor = Executors.newScheduledThreadPool(1);
-	
-	static class Token {
-		Integer port;
-		Long lastIdleCheck = 0L;
-		public Token(Integer port) {
-			this.port = port;
-		}
-	}
-	
+	private List<Token> tokens = new ArrayList<Token>();
+
 	private SshServer sshServer;
 	private String sshTunnelHost;
-	private final int sshTunnelPort;
-	private final int lowerPort;
-	private final int higherPort;
+	private int sshTunnelPort;
+	private int lowerPort;
+	private int higherPort;
 	private String hostKeyPath;
 	private Long idleTokenTimeout;
 	
 	private int nioWorkers;
 	
 	public TunnelServer(String sshTunnelHost, int sshTunnelPort, int lowerPort, 
-			int higherPort, Long idleTokenTimeout, String hostKeyPath) {
+			int higherPort, Long idleTokenTimeout, String hostKeyPath, List<Token> tokens) {
 		this.sshTunnelHost = sshTunnelHost;
 		this.sshTunnelPort = sshTunnelPort;
 		this.lowerPort = lowerPort;
@@ -70,14 +57,22 @@ public class TunnelServer {
 		this.idleTokenTimeout = idleTokenTimeout == null ? TOKEN_EXPIRATION_TIMEOUT
 				: idleTokenTimeout;
 		this.hostKeyPath = hostKeyPath;
-		this.nioWorkers = (higherPort - lowerPort)+2; //+2 is to have a secure margin of works for ports. If number of ports is 5, workers will be set to 6;
+		//+2 is to have a secure margin of works for ports. If number of ports is 5, workers will be set to 6;
+		this.nioWorkers = (higherPort - lowerPort)+2; 
+		this.tokens = tokens;
 	}
-
-	public synchronized Integer createPort(String token) {
-		Integer newPort = null;
-		if (tokens.containsKey(token)) {
-			return tokens.get(token).port;
+	
+	public synchronized Token createPort(String tokenId) {
+		if(tokenId == null){
+			return null;
 		}
+		Integer newPort = null;
+		for(Token token : tokens){
+			if(tokenId.equals(token.getTokenId())){
+				return token;
+			}
+		}
+		
 		for (int port = lowerPort; port <= higherPort; port++) {
 			if (isTaken(port)) {
 				continue;
@@ -86,18 +81,19 @@ public class TunnelServer {
 			break;
 		}
 		if (newPort == null) {
-			LOGGER.debug("Token [" + token + "] didn't get any port. All ports are busy.");
+			LOGGER.debug("Token [" + tokenId + "] didn't get any port. All ports are busy.");
 			return null;
 		}
 		
-		LOGGER.debug("Token [" + token + "] got port [" + newPort + "].");
-		tokens.put(token, new Token(newPort));
-		return newPort;
+		LOGGER.debug("Token [" + tokenId + "] got port [" + newPort + "].");
+		Token newToken = new Token(tokenId, newPort, sshTunnelPort);
+		tokens.add(newToken);
+		return newToken;
 	}
 	
 	private boolean isTaken(int port) {
-		for (Token token : tokens.values()) {
-			if (token.port.equals(port)) {
+		for (Token token : tokens) {
+			if (token.getPort().equals(port)) {
 				return true;
 			}
 		}
@@ -140,7 +136,16 @@ public class TunnelServer {
 					@Override
 					public Boolean auth(ServerSession session, String username,
 							String service, Buffer buffer) throws Exception {
-						if (!tokens.containsKey(username)) {
+						
+						boolean hasSession = false;
+						
+						for(Token token : tokens){
+							if(username.equals(token.getTokenId())){
+								hasSession = true;
+							}
+						}
+						
+						if (!hasSession) {
 							session.close(true);
 							return false;
 						}
@@ -162,30 +167,7 @@ public class TunnelServer {
 		sshServer.setHost(sshTunnelHost == null ? "0.0.0.0" : sshTunnelHost);
 		sshServer.setPort(sshTunnelPort);
 		sshServer.setNioWorkers(nioWorkers);
-		executor.scheduleWithFixedDelay(new Runnable() {
-			@Override
-			public void run() {
-				Set<String> tokensToExpire = new HashSet<String>();
-				for (Entry<String, Token> tokenEntry : tokens.entrySet()) {
-					Token token = tokenEntry.getValue();
-					if (getActiveSession(token.port) == null) {
-						long now = System.currentTimeMillis();
-						if (token.lastIdleCheck == 0) {
-							token.lastIdleCheck = now;
-						}
-						if (now - token.lastIdleCheck > idleTokenTimeout) {
-							tokensToExpire.add(tokenEntry.getKey());
-						}
-					} else {
-						token.lastIdleCheck = 0L;
-					}
-				}
-				for (String token : tokensToExpire) {
-					LOGGER.debug("Expiring token [" + token + "].");
-					tokens.remove(token);
-				}
-			}
-		}, 0L, TOKEN_EXPIRATION_CHECK_INTERVAL, TimeUnit.SECONDS);
+		
 		sshServer.start();
 	}
 
@@ -207,12 +189,20 @@ public class TunnelServer {
 					session.close(true);
 					return false;
 				}
-				Token token = tokens.get(username);
-				if (token == null || !token.port.equals(address.getPort())) {
+				
+				Token token = null;
+				
+				for(Token t : tokens){
+					if(username.equals(token.getTokenId())){
+						t = token;
+					}
+				}
+				
+				if (token == null || !token.getPort().equals(address.getPort())) {
 					session.close(true);
 					return false;
 				}
-				ReverseTunnelForwarder existingSession = getActiveSession(token.port);
+				ReverseTunnelForwarder existingSession = getActiveSession(token.getPort());
 				if (existingSession != null) {
 					existingSession.close(true);
 				}
@@ -237,21 +227,22 @@ public class TunnelServer {
 	}
 
 	public Integer getPort(String tokenId) {
-		Token token = tokens.get(tokenId);
-		if (token == null) {
+		
+		if(tokenId == null){
 			return null;
 		}
-		return token.port;
+		
+		for (Token token : tokens) {
+			if(tokenId.equals(token.getTokenId())){
+				return token.getPort();
+			}
+		}
+		return null;
 	}
 	
-	public Map<String, Integer> getAllPorts() {
-		Map<String, Integer> portsByPrefix = new HashMap<String, Integer>();
-		for (Entry<String, Token> tokenEntry : tokens.entrySet()) {
-			portsByPrefix.put(
-					tokenEntry.getKey(), 
-					tokenEntry.getValue().port);
-		}
-		return portsByPrefix;
+	public List<Token> getAllPorts() {
+		
+		return tokens;
 	}
 	
 	public Map<String, Integer> getPortByPrefix(String tokenId) {
@@ -260,18 +251,17 @@ public class TunnelServer {
 		if (sshPort != null) {
 			portsByPrefix.put("ssh", sshPort);
 		}
-		for (Entry<String, Token> tokenEntry : tokens.entrySet()) {
+		for (Token token : tokens) {
 			String tokenPrefix = tokenId + "-";
-			if (tokenEntry.getKey().startsWith(tokenPrefix)) {
+			if (token.getTokenId().startsWith(tokenPrefix)) {
 				portsByPrefix.put(
-						tokenEntry.getKey().substring(tokenPrefix.length()), 
-						tokenEntry.getValue().port);
+						token.getTokenId().substring(tokenPrefix.length()), 
+						token.getPort());
 			}
 		}
 		return portsByPrefix;
 	}
 	
-	//TODO: Create a method that return boolean for server busy (reached port limit) or not.
 	public boolean isServerBusy(){
 		for (int port = lowerPort; port <= higherPort; port++) {
 			if (!isTaken(port)) {
@@ -287,12 +277,12 @@ public class TunnelServer {
 		
 	}
 	
-	public void releasePort(Integer port){
+	public Token releasePort(Integer port){
 		if(port != null){
-			String tokenToRemove = null;
-			for(Entry<String, Token> e : tokens.entrySet()){
-				if(port.compareTo(e.getValue().port) == 0){
-					tokenToRemove = e.getKey();
+			Token tokenToRemove = null;
+			for(Token token : tokens){
+				if(port.compareTo(token.getPort()) == 0){
+					tokenToRemove = token;
 					break;
 				}
 			}
@@ -301,7 +291,9 @@ public class TunnelServer {
 				this.getActiveSession(port.intValue()).close(true);
 			}
 			tokens.remove(tokenToRemove);
+			return tokenToRemove;
 		}
+		return null;
 	}
 	
 	public void stop() throws InterruptedException{
@@ -314,6 +306,30 @@ public class TunnelServer {
 		}
 		sshServer.stop(true);
 		
+	}
+	
+	public Set<Token> getExpiredTokens(){
+		
+		Set<Token> tokensToExpire = new HashSet<Token>();
+		for (Token token : tokens) {
+			if (getActiveSession(token.getPort()) == null) {
+				long now = System.currentTimeMillis();
+				if (token.getLastIdleCheck() == 0) {
+					token.setLastIdleCheck(now);
+				}
+				if (now - token.getLastIdleCheck() > idleTokenTimeout) {
+					tokensToExpire.add(token);
+				}
+			} else {
+				token.setLastIdleCheck(0L);
+			}
+		}
+		for (Token token : tokensToExpire) {
+			LOGGER.debug("Expiring token [" + token + "].");
+			tokens.remove(token);
+		}
+		return tokensToExpire;
+
 	}
 
 	public int getActiveTokensNumber(){
@@ -331,5 +347,42 @@ public class TunnelServer {
 	public int getSshTunnelPort() {
 		return sshTunnelPort;
 	}
+
+	public List<Token> getTokens() {
+		return tokens;
+	}
+
+	public void setTokens(List<Token> tokens) {
+		this.tokens = tokens;
+	}
+
+	public String getSshTunnelHost() {
+		return sshTunnelHost;
+	}
+
+	public Long getIdleTokenTimeout() {
+		return idleTokenTimeout;
+	}
+
+	public void setIdleTokenTimeout(Long idleTokenTimeout) {
+		this.idleTokenTimeout = idleTokenTimeout;
+	}
+
+	public String getHostKeyPath() {
+		return hostKeyPath;
+	}
+
+	public void setHostKeyPath(String hostKeyPath) {
+		this.hostKeyPath = hostKeyPath;
+	}
+
+	public void setLowerPort(int lowerPort) {
+		this.lowerPort = lowerPort;
+	}
+
+	public void setHigherPort(int higherPort) {
+		this.higherPort = higherPort;
+	}
+
 	
 }
