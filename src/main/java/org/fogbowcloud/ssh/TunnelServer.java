@@ -193,8 +193,10 @@ public class TunnelServer {
 				Token token = null;
 				
 				for(Token t : tokens){
-					if(username.equals(token.getTokenId())){
-						t = token;
+					if(t != null){
+						if(username.equals(t.getTokenId())){
+							token = t;
+						}
 					}
 				}
 				
