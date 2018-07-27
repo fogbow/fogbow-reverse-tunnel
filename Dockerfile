@@ -28,10 +28,10 @@ WORKDIR /root
 
 # Installing Reverse Tunnel
 RUN \
-  git clone https://github.com/fogbow/fogbow-reverse-tunnel.git && \
-  (cd fogbow-reverse-tunnel && git checkout master && mvn install)
+  git clone https://github.com/fogbow/reverse-tunnel-service.git && \
+  (cd reverse-tunnel-service && git checkout master && mvn install)
 
 # Define working directory.
-WORKDIR /root/fogbow-reverse-tunnel
+WORKDIR /root/reverse-tunnel-service
 
 CMD /bin/bash start-tunnel-server > log.out && tail -f /dev/null
